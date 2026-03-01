@@ -1,0 +1,81 @@
+services:
+  frontend:
+    build: ./frontend
+    container_name: eclipay_frontend
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - HOSTNAME=0.0.0.0
+    networks:
+      - eclipay_network
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.eclipay.rule=Host(`payment-gateway.guanchuanlee.com`)"
+      - "traefik.http.routers.eclipay.entrypoints=websecure"
+      - "traefik.http.routers.eclipay.tls.certresolver=letsencrypt"
+      - "traefik.http.services.eclipay.loadbalancer.server.port=3000"
+      - "traefik.docker.network=web"
+
+  app:
+    build: .
+    container_name: eclipay_app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=eclipay
+      - DB_PASSWORD=eclipay_password
+      - DB_NAME=eclipay
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ENCRYPTION_KEY=your-encryption-key-change-in-production
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - eclipay_network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: eclipay_postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=eclipay
+      - POSTGRES_USER=eclipay
+      - POSTGRES_PASSWORD=eclipay_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/database/migrations/001-initial-schema.sql:/docker-entrypoint-initdb.d/001-initial-schema.sql
+      - ./src/database/migrations/002-multi-project.sql:/docker-entrypoint-initdb.d/002-multi-project.sql
+      - ./src/database/migrations/003-per-project-master-wallets.sql:/docker-entrypoint-initdb.d/003-per-project-master-wallets.sql
+    networks:
+      - eclipay_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: eclipay_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - eclipay_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
+
+networks:
+  eclipay_network:
+    driver: bridge
+  web:
+    external: true

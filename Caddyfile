@@ -1,0 +1,34 @@
+payment_gateway.guanchuanlee.com {
+    reverse_proxy app:3000
+    
+    # Add CORS headers
+    header {
+        Access-Control-Allow-Origin "*"
+        Access-Control-Allow-Methods "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+        Access-Control-Allow-Headers "Content-Type, Authorization, X-API-Key"
+    }
+    
+    # Handle preflight requests
+    @options method OPTIONS
+    respond @options 204
+    
+    # Security headers
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        X-XSS-Protection "1; mode=block"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    }
+    
+    # Logs
+    log {
+        output file /data/logs/eclipay_access.log
+        format json
+    }
+    
+    # Error pages
+    handle_errors {
+        @5xx expression {http.error.status_code} >= 500
+        respond @5xx "Service temporarily unavailable" 503
+    }
+}
