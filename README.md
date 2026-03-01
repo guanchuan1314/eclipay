@@ -29,13 +29,19 @@ A robust payment infrastructure supporting multiple blockchain networks for USDT
 ## Quick Start
 
 ### Prerequisites
+
+**For Development:**
 - Docker and Docker Compose v2+
-- Domain pointed to your server (for production)
-- SSL certificate management (Traefik recommended for production)
 
-### 🚀 Development Setup
+**For Production:**
+- Ubuntu 22.04 or 24.04 server
+- Root access
+- Domain pointed to your server IP
+- 2GB+ RAM, 2+ CPU cores recommended
 
-Development setup exposes only the frontend web interface (port 3000) to the host. All backend services (API, database, Redis) run internally with hot reload support.
+### 🚀 Development Setup (Docker)
+
+**Use this for local development only.** Development setup uses Docker containers with hot reload support and exposes only the frontend web interface (port 3000) to the host.
 
 ```bash
 # 1. Clone the repository
@@ -59,9 +65,9 @@ docker compose up -d
 - ✅ Only web port exposed (security-focused)
 - ✅ Automatic file watching and rebuilds
 
-### 🏭 Production Setup
+### 🏭 Production Setup (Native Installation)
 
-Production setup exposes all service ports and includes production optimizations, health checks, and Traefik labels for SSL termination.
+**This is the recommended method for production servers.** The native setup installs all components directly on Ubuntu without Docker containers for maximum performance and control.
 
 ```bash
 # 1. Clone the repository
