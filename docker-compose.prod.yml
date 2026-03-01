@@ -1,0 +1,163 @@
+version: '3.8'
+
+# Production overrides - exposes all service ports to host
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  frontend:
+    container_name: eclipay_frontend_prod
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${FRONTEND_API_URL:-http://localhost:3001/api}
+    volumes: []  # Remove development volumes
+    develop: {}  # Remove watch configuration
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.eclipay-frontend.rule=Host(`${FRONTEND_DOMAIN:-payment.yourdomain.com}`)"
+      - "traefik.http.routers.eclipay-frontend.entrypoints=websecure"
+      - "traefik.http.routers.eclipay-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.eclipay-frontend.loadbalancer.server.port=3000"
+      - "traefik.docker.network=web"
+    networks:
+      - eclipay_network
+      - web
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  backend:
+    container_name: eclipay_backend_prod
+    build:
+      target: runner  # Use production target
+    ports:
+      - "${BACKEND_PORT:-3001}:3000"  # Expose backend API port to host
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - ETHEREUM_RPC_URL=${ETHEREUM_RPC_URL}
+      - BSC_RPC_URL=${BSC_RPC_URL}
+      - POLYGON_RPC_URL=${POLYGON_RPC_URL}
+      - ARBITRUM_RPC_URL=${ARBITRUM_RPC_URL}
+      - OPTIMISM_RPC_URL=${OPTIMISM_RPC_URL}
+      - AVALANCHE_RPC_URL=${AVALANCHE_RPC_URL}
+      - TRON_RPC_URL=${TRON_RPC_URL}
+      - SOLANA_RPC_URL=${SOLANA_RPC_URL}
+      - TON_RPC_URL=${TON_RPC_URL}
+    volumes:
+      - uploads_data:/app/uploads
+      # Remove development sync volumes
+    develop: {}  # Remove watch configuration
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.eclipay-api.rule=Host(`${API_DOMAIN:-api.yourdomain.com}`) || (Host(`${FRONTEND_DOMAIN:-payment.yourdomain.com}`) && PathPrefix(`/api`))"
+      - "traefik.http.routers.eclipay-api.entrypoints=websecure"
+      - "traefik.http.routers.eclipay-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.eclipay-api.loadbalancer.server.port=3000"
+      - "traefik.docker.network=web"
+    networks:
+      - eclipay_network
+      - web
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  postgres:
+    container_name: eclipay_postgres_prod
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"  # Expose postgres port to host
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USERNAME}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_NAME}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          memory: 512M
+    command: >
+      postgres 
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+
+  redis:
+    container_name: eclipay_redis_prod
+    ports:
+      - "${REDIS_PORT:-6379}:6379"  # Expose redis port to host
+    restart: always
+    command: >
+      redis-server 
+      --appendonly yes 
+      --maxmemory 1gb 
+      --maxmemory-policy allkeys-lru
+      --save 900 1 
+      --save 300 10 
+      --save 60 10000
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          memory: 256M
+
+networks:
+  web:
+    external: true
+    name: web

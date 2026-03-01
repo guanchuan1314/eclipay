@@ -1,56 +1,85 @@
+version: '3.8'
+
 services:
   frontend:
-    build: ./frontend
-    container_name: eclipay_frontend
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: eclipay_frontend_dev
     restart: unless-stopped
     ports:
-      - "3001:3000"
+      - "3000:3000"  # Only expose frontend port to host
     environment:
-      - HOSTNAME=0.0.0.0
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:3000/api
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
     networks:
       - eclipay_network
-      - web
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.eclipay.rule=Host(`payment-gateway.guanchuanlee.com`)"
-      - "traefik.http.routers.eclipay.entrypoints=websecure"
-      - "traefik.http.routers.eclipay.tls.certresolver=letsencrypt"
-      - "traefik.http.services.eclipay.loadbalancer.server.port=3000"
-      - "traefik.docker.network=web"
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend
+          target: /app
+          ignore:
+            - node_modules/
+            - .next/
+        - action: rebuild
+          path: ./frontend/package.json
 
-  app:
-    build: .
-    container_name: eclipay_app
+  backend:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      target: builder  # Use builder stage for dev with source maps
+    container_name: eclipay_backend_dev
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    # No host ports exposed - internal only
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - PORT=3000
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_USERNAME=eclipay
-      - DB_PASSWORD=eclipay_password
-      - DB_NAME=eclipay
+      - DB_USERNAME=${DB_USERNAME:-eclipay}
+      - DB_PASSWORD=${DB_PASSWORD:-eclipay_password}
+      - DB_NAME=${DB_NAME:-eclipay}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - ENCRYPTION_KEY=your-encryption-key-change-in-production
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-development-key-change-in-production}
+      - JWT_SECRET=${JWT_SECRET:-development-jwt-secret}
     volumes:
       - uploads_data:/app/uploads
+      - ./src:/app/src
+      - ./package.json:/app/package.json
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - eclipay_network
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: rebuild
+          path: ./package.json
 
   postgres:
     image: postgres:15-alpine
-    container_name: eclipay_postgres
+    container_name: eclipay_postgres_dev
     restart: unless-stopped
+    # No host ports exposed - internal only
     environment:
-      - POSTGRES_DB=eclipay
-      - POSTGRES_USER=eclipay
-      - POSTGRES_PASSWORD=eclipay_password
+      - POSTGRES_DB=${DB_NAME:-eclipay}
+      - POSTGRES_USER=${DB_USERNAME:-eclipay}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-eclipay_password}
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./src/database/migrations/001-initial-schema.sql:/docker-entrypoint-initdb.d/001-initial-schema.sql
@@ -58,16 +87,27 @@ services:
       - ./src/database/migrations/003-per-project-master-wallets.sql:/docker-entrypoint-initdb.d/003-per-project-master-wallets.sql
     networks:
       - eclipay_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-eclipay} -d ${DB_NAME:-eclipay}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: eclipay_redis
+    container_name: eclipay_redis_dev
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    # No host ports exposed - internal only
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     networks:
       - eclipay_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
 volumes:
   postgres_data:
@@ -77,5 +117,4 @@ volumes:
 networks:
   eclipay_network:
     driver: bridge
-  web:
-    external: true
+    name: eclipay_dev

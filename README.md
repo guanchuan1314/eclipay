@@ -10,6 +10,7 @@ A robust payment infrastructure supporting multiple blockchain networks for USDT
 - **Webhook Notifications**: Merchant callbacks for payment events
 - **API Authentication**: Secure API key-based merchant authentication
 - **Docker Deployment**: Complete containerized setup with PostgreSQL and Redis
+- **Dual Environment Support**: Separate configurations for development and production
 
 ## Supported Chains
 
@@ -28,33 +29,138 @@ A robust payment infrastructure supporting multiple blockchain networks for USDT
 ## Quick Start
 
 ### Prerequisites
-- Docker and Docker Compose
-- Domain pointed to your server (payment_gateway.guanchuanlee.com)
+- Docker and Docker Compose v2+
+- Domain pointed to your server (for production)
+- SSL certificate management (Traefik recommended for production)
 
-### 1. Clone and Setup
+### 🚀 Development Setup
+
+Development setup exposes only the frontend web interface (port 3000) to the host. All backend services (API, database, Redis) run internally with hot reload support.
+
 ```bash
+# 1. Clone the repository
 git clone <repository>
 cd eclipay
+
+# 2. Create environment file
 cp .env.example .env
-# Edit .env with your configuration
-```
 
-### 2. Start Services
-```bash
+# 3. Start development environment
 docker compose up -d
+
+# 4. Access the application
+# Frontend: http://localhost:3000
+# Backend API: Internal only (accessible via frontend proxy)
 ```
 
-### 3. Verify Health
+**Development Features:**
+- ✅ Hot reload for frontend and backend
+- ✅ Source code volume mounts
+- ✅ Only web port exposed (security-focused)
+- ✅ Automatic file watching and rebuilds
+
+### 🏭 Production Setup
+
+Production setup exposes all service ports and includes production optimizations, health checks, and Traefik labels for SSL termination.
+
 ```bash
-curl https://payment_gateway.guanchuanlee.com/health
+# 1. Clone the repository
+git clone <repository>
+cd eclipay
+
+# 2. Create and configure environment
+cp .env.example .env
+# Edit .env with your production values:
+# - Set strong passwords for DB_PASSWORD, ENCRYPTION_KEY, JWT_SECRET
+# - Configure your domain names
+# - Set blockchain RPC URLs
+# - Configure email/monitoring settings
+
+# 3. Start production environment
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# 4. Verify deployment
+curl http://localhost:3001/health  # Backend API
+curl http://localhost:3000/        # Frontend
 ```
 
-## API Endpoints
+**Production Features:**
+- ✅ All ports exposed for monitoring
+- ✅ Health checks and automatic restarts
+- ✅ Resource limits and performance tuning
+- ✅ Traefik labels for SSL/TLS termination
+- ✅ Production-optimized container builds
+- ✅ Comprehensive environment configuration
+
+### 📊 Port Configuration
+
+| Service | Development | Production |
+|---------|-------------|------------|
+| Frontend | `:3000` → Host | `:3000` → Host |
+| Backend API | Internal only | `:3001` → Host |
+| PostgreSQL | Internal only | `:5432` → Host |
+| Redis | Internal only | `:6379` → Host |
+
+## Configuration
+
+### Environment Variables
+
+The `.env.example` file contains all available configuration options with documentation. Key variables include:
+
+```bash
+# Security (REQUIRED)
+ENCRYPTION_KEY=your-32-char-encryption-key
+JWT_SECRET=your-32-char-jwt-secret
+DB_PASSWORD=secure-database-password
+
+# Domains (Production)
+FRONTEND_DOMAIN=payment.yourdomain.com
+API_DOMAIN=api.yourdomain.com
+
+# Blockchain RPC URLs
+ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/your-key
+BSC_RPC_URL=https://bsc-dataseed.binance.org/
+# ... (see .env.example for full list)
+```
+
+### SSL/TLS with Traefik
+
+For production deployments with SSL, set up Traefik as a reverse proxy:
+
+```yaml
+# /opt/traefik/docker-compose.yml
+version: '3.8'
+services:
+  traefik:
+    image: traefik:v2.10
+    ports:
+      - "80:80"
+      - "443:443"
+    command:
+      - --providers.docker=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.email=admin@yourdomain.com
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - web
+
+networks:
+  web:
+    external: true
+```
+
+## API Documentation
 
 ### Health Check
 ```bash
 GET /health
 ```
+
+### Authentication
+All merchant API endpoints require the `x-api-key` header with a valid API key.
 
 ### Create Merchant
 ```bash
@@ -108,59 +214,177 @@ Headers: x-api-key: your-api-key
          ◄────────────────────────┤                        │
 ```
 
+## Management Commands
+
+### Development
+```bash
+# Start services
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Restart a service
+docker compose restart backend
+
+# Stop all services
+docker compose down
+
+# Rebuild and restart
+docker compose up -d --build
+```
+
+### Production
+```bash
+# Start services
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# View logs
+docker compose logs -f
+
+# Update and restart
+docker compose pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# Database backup
+docker compose exec postgres pg_dump -U eclipay eclipay > backup.sql
+```
+
+### Monitoring
+```bash
+# Service status
+docker compose ps
+
+# Resource usage
+docker stats
+
+# Health checks
+curl http://localhost:3001/health
+curl http://localhost:3000/
+
+# Database connection
+docker compose exec postgres psql -U eclipay -d eclipay
+
+# Redis connection
+docker compose exec redis redis-cli ping
+```
+
 ## Database Schema
 
 - **chains**: Blockchain network configurations
-- **merchants**: API key authentication and webhooks
+- **merchants**: API key authentication and webhooks  
 - **master_wallets**: Root wallets for each chain
 - **sub_wallets**: Derived addresses for payments
 - **invoices**: Payment requests and status
 - **transactions**: Blockchain transaction records
 
-## Development
+## Development Workflow
 
-### Local Setup
+### Local Development
 ```bash
+# Install dependencies locally (optional, for IDE support)
 npm install
-npm run start:dev
+
+# Start development environment
+docker compose up -d
+
+# Run tests
+docker compose exec backend npm test
+docker compose exec backend npm run test:e2e
+
+# Database migrations (if needed)
+docker compose exec backend npm run typeorm migration:run
 ```
 
-### Database Migrations
+### Hot Reload
+
+The development environment supports hot reload:
+- **Frontend**: Next.js fast refresh for React components
+- **Backend**: TypeScript compilation and restart on file changes
+- **Database**: Schema changes via mounted migration files
+
+## Security Features
+
+- ✅ API keys hashed with bcrypt
+- ✅ Private keys encrypted at rest
+- ✅ HTTPS enforced via reverse proxy
+- ✅ CORS and security headers configured
+- ✅ Webhook signature verification
+- ✅ Rate limiting on API endpoints
+- ✅ Database connection encryption
+- ✅ Environment-based configuration
+
+## Monitoring & Observability
+
+- **Health Endpoints**: `/health` for service status
+- **Metrics**: Transaction and invoice statistics endpoints
+- **Logging**: Structured JSON logs via Docker
+- **Alerts**: Webhook delivery failures and retry logic
+- **Performance**: Database query optimization and caching
+
+## Scaling Considerations
+
+### Horizontal Scaling
+- Run multiple backend instances behind a load balancer
+- Use shared Redis for session storage
+- Implement database read replicas for analytics
+
+### Resource Optimization
+- Backend: 2 CPU cores, 1GB RAM per instance
+- PostgreSQL: 1 CPU core, 1GB RAM
+- Redis: 0.5 CPU cores, 1GB RAM
+- Frontend: 1 CPU core, 512MB RAM
+
+### High Availability
+- Multi-zone database deployment
+- Redis clustering for cache redundancy
+- External monitoring services for address watching
+- Automated backup and recovery procedures
+
+## Troubleshooting
+
+### Common Issues
+
+**Services not starting:**
 ```bash
-# The initial schema is automatically applied via Docker
-# For new migrations, use TypeORM CLI
-npm run typeorm migration:generate src/database/migrations/NewMigration
-npm run typeorm migration:run
+# Check logs
+docker compose logs
+
+# Rebuild containers
+docker compose build --no-cache
+docker compose up -d
 ```
 
-### Testing
+**Database connection issues:**
 ```bash
-npm test
-npm run test:e2e
+# Check database status
+docker compose exec postgres pg_isready
+
+# Reset database (development only)
+docker compose down -v
+docker compose up -d
 ```
 
-## Security
+**Frontend not accessible:**
+```bash
+# Check if port is bound
+netstat -tlnp | grep :3000
 
-- API keys are hashed using bcrypt
-- Private keys are encrypted at rest
-- HTTPS enforced via Caddy
-- CORS and security headers configured
-- Webhook signatures for verification
+# Check container status
+docker compose ps
+```
 
-## Monitoring
+## Contributing
 
-- Health check endpoint: `/health`
-- Transaction statistics: `/transactions/stats/summary`
-- Invoice statistics: `/invoices/stats/summary`
-- Logs available via Docker: `docker compose logs -f`
-
-## Scaling
-
-- Horizontal scaling: Run multiple app instances behind load balancer
-- Database: Use PostgreSQL read replicas for analytics
-- Redis: Cluster mode for high availability
-- Monitoring: Use external address monitoring services for redundancy
+1. Fork the repository
+2. Create a feature branch
+3. Make changes with tests
+4. Submit a pull request
 
 ## License
 
 MIT License - See LICENSE file for details
+
+---
+
+**Need Help?** Check the logs with `docker compose logs -f` or open an issue for support.
